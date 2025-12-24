@@ -1,0 +1,12 @@
+[
+  {
+    "name": "BTC 15-Min Up/Down",
+    "poly_slug": "btc-updown-15m-1762516800",
+    "kalshi_ticker": "BTC-PRICE-INTERVAL-25"
+  },
+  {
+    "name": "BTC Above/Below $95K in 15M",
+    "poly_slug": "btc-above-below-95000-15m",
+    "kalshi_ticker": null
+  }
+]

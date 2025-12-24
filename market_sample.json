@@ -1,0 +1,27 @@
+{
+  "market_slug": "nba-tor-mia-2025-12-23-spread-home-6pt5",
+  "title": "Spread: Heat (-6.5)",
+  "condition_id": "0x545b14ed499f04eb7c372019a33fdec21debc4995fe086f22aa5aea6100f1609",
+  "start_time": 1766531498,
+  "end_time": 1766536200,
+  "completed_time": null,
+  "close_time": null,
+  "tags": [],
+  "volume_1_week": 381005.20621999993,
+  "volume_1_month": 381005.20621999993,
+  "volume_1_year": 381005.20621999993,
+  "volume_total": 702304.597947,
+  "resolution_source": "https://www.nba.com/",
+  "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/super+cool+basketball+in+red+and+blue+wow.png",
+  "side_a": {
+    "id": "86995594211787661374381504689901261446212281008202074584432896022173854652925",
+    "label": "Heat"
+  },
+  "side_b": {
+    "id": "19133072401819371184865999156728513932396913732640179716134488829869498963115",
+    "label": "Raptors"
+  },
+  "winning_side": null,
+  "game_start_time": "2025-12-24T00:30:00.000000000Z",
+  "status": "open"
+}
