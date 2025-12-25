@@ -93,7 +93,7 @@ const BtcIntraArbScanner = () => {
               
               <div style={{ fontSize: '0.7rem', color: '#ccc' }}>
                 <div style={{ marginBottom: '0.5rem', color: '#888' }}>
-                  {new Date(results.timestamp).toLocaleTimeString()} - {results.count} checked
+                  {new Date(results.timestamp).toLocaleTimeString()} - {results.marketsScanned || results.count} checked
                 </div>
 
                 {results.arbs.length > 0 ? (

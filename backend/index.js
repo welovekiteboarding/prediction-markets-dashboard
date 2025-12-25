@@ -171,70 +171,178 @@ app.get('/', (req, res) => {
 
 // Get Polymarket markets
 app.get('/api/markets', async (req, res) => {
-  console.log('=== /api/markets called ===');
-  console.log('DOME_API_KEY exists:', !!process.env.DOME_API_KEY);
-  console.log('DOME_API_KEY length:', process.env.DOME_API_KEY?.length);
+  const requestId = `mkts-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  console.log(`=== [${requestId}] /api/markets called ===`);
+  console.log(`[${requestId}] Request headers:`, req.headers);
+  console.log(`[${requestId}] Request query:`, req.query);
+  console.log(`[${requestId}] Request timestamp:`, new Date().toISOString());
+  
   try {
-    console.log('Fetching markets from Dome API...');
+    console.log(`[${requestId}] DOME_API_KEY exists:`, !!process.env.DOME_API_KEY);
+    console.log(`[${requestId}] DOME_API_KEY length:`, process.env.DOME_API_KEY?.length);
+    console.log(`[${requestId}] Fetching markets from Dome API...`);
+    
     const response = await domeApi.get('/polymarket/markets', {
       params: {
-        limit: 10,
-        order: 'volume',
-        ascending: false,
+        limit: 50,
         closed: false
       }
     });
-    console.log('Dome API response status:', response.status);
-    console.log('Dome API response data type:', typeof response.data);
-    console.log('Dome API response has markets:', !!response.data.markets);
-    console.log('Markets type:', typeof response.data.markets);
-    console.log('Markets is array:', Array.isArray(response.data.markets));
-    console.log('Markets length:', response.data.markets?.length);
+    
+    console.log(`[${requestId}] Dome API response status:`, response.status);
+    console.log(`[${requestId}] Dome API response data type:`, typeof response.data);
+    console.log(`[${requestId}] Dome API response has markets:`, !!response.data.markets);
+    console.log(`[${requestId}] Markets type:`, typeof response.data.markets);
+    console.log(`[${requestId}] Markets is array:`, Array.isArray(response.data.markets));
+    console.log(`[${requestId}] Markets length:`, response.data.markets?.length);
     
     const markets = response.data.markets;
-    console.log('First market sample:', markets?.[0] ? {
-      title: markets[0].title,
-      market_slug: markets[0].market_slug,
-      side_a_id: markets[0].side_a?.id,
-      side_b_id: markets[0].side_b?.id
-    } : 'No markets');
     
-    res.json(markets);
+    if (markets && markets.length > 0) {
+      console.log(`[${requestId}] First market sample:`, {
+        title: markets[0].title,
+        market_slug: markets[0].market_slug,
+        side_a_id: markets[0].side_a?.id,
+        side_b_id: markets[0].side_b?.id
+      });
+    }
+    
+    console.log(`[${requestId}] Successfully fetched ${markets?.length || 0} markets`);
+    res.json({ markets });
   } catch (error) {
-    console.error('Error fetching markets:', error.response?.data || error.message);
-    console.error('Error status:', error.response?.status);
-    console.error('Error config:', error.config);
-    res.status(500).json({ error: 'Failed to fetch markets' });
+    console.log(`[${requestId}] === MARKETS ERROR CAUGHT ===`);
+    console.log(`[${requestId}] Error message:`, error.message);
+    console.log(`[${requestId}] Error name:`, error.name);
+    console.log(`[${requestId}] Error code:`, error.code);
+    console.log(`[${requestId}] Error stack:`, error.stack);
+    console.log(`[${requestId}] Error response status:`, error.response?.status);
+    console.log(`[${requestId}] Error response data:`, error.response?.data);
+    console.log(`[${requestId}] Error response headers:`, error.response?.headers);
+    console.log(`[${requestId}] Error config URL:`, error.config?.url);
+    console.log(`[${requestId}] Error config baseURL:`, error.config?.baseURL);
+    console.log(`[${requestId}] Error config fullURL:`, `${error.config?.baseURL}${error.config?.url}`);
+    console.log(`[${requestId}] Error config headers:`, error.config?.headers);
+    console.log(`[${requestId}] Error config method:`, error.config?.method);
+    console.log(`[${requestId}] Error config params:`, error.config?.params);
+    
+    // Handle specific error codes
+    if (error.response?.status === 401) {
+      console.log(`[${requestId}] 401 Error - Authentication failed`);
+      return res.status(401).json({ error: 'Authentication failed' });
+    }
+    
+    if (error.response?.status === 403) {
+      console.log(`[${requestId}] 403 Error - Access forbidden`);
+      return res.status(403).json({ error: 'Access forbidden' });
+    }
+    
+    if (error.response?.status === 429) {
+      console.log(`[${requestId}] 429 Error - Rate limit exceeded`);
+      return res.status(429).json({ error: 'Rate limit exceeded' });
+    }
+    
+    // Network errors
+    if (error.code === 'ECONNREFUSED') {
+      console.log(`[${requestId}] Connection refused error`);
+      return res.status(503).json({ error: 'Service unavailable' });
+    }
+    
+    if (error.code === 'ETIMEDOUT') {
+      console.log(`[${requestId}] Timeout error`);
+      return res.status(504).json({ error: 'Request timeout' });
+    }
+    
+    console.log(`[${requestId}] Unhandled markets error - returning 500 status`);
+    res.status(500).json({ 
+      error: 'Failed to fetch markets', 
+      details: error.message,
+      requestId: requestId
+    });
   }
 });
 
 // Get market price
 app.get('/api/market-price/:tokenId', async (req, res) => {
-  console.log('=== /api/market-price called ===');
+  const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  console.log(`=== [${requestId}] /api/market-price called ===`);
+  console.log(`[${requestId}] Request params:`, req.params);
+  console.log(`[${requestId}] Request headers:`, req.headers);
+  console.log(`[${requestId}] Request timestamp:`, new Date().toISOString());
+  
   try {
     const { tokenId } = req.params;
-    console.log('Token ID:', tokenId);
-    console.log('DOME_API_KEY exists:', !!process.env.DOME_API_KEY);
-    console.log('DOME_API_KEY length:', process.env.DOME_API_KEY?.length);
-    console.log('Dome API baseURL:', DOME_API_BASE);
-    console.log('Fetching price from Dome API...');
+    console.log(`[${requestId}] Token ID: ${tokenId}`);
+    console.log(`[${requestId}] DOME_API_KEY exists:`, !!process.env.DOME_API_KEY);
+    console.log(`[${requestId}] DOME_API_KEY length:`, process.env.DOME_API_KEY?.length);
+    console.log(`[${requestId}] Dome API baseURL:`, DOME_API_BASE);
+    console.log(`[${requestId}] Fetching price from Dome API...`);
     
     // Manually construct the request to see exactly what's being sent
     const fullUrl = `${DOME_API_BASE}/polymarket/market-price/${tokenId}`;
-    console.log('Full URL:', fullUrl);
+    console.log(`[${requestId}] Full URL: ${fullUrl}`);
     
     const response = await domeApi.get(`/polymarket/market-price/${tokenId}`);
-    console.log('Price response status:', response.status);
-    console.log('Price response data:', response.data);
+    console.log(`[${requestId}] Price response status:`, response.status);
+    console.log(`[${requestId}] Price response data:`, response.data);
+    console.log(`[${requestId}] Request completed successfully`);
     res.json(response.data);
   } catch (error) {
-    console.error('Error fetching market price:', error.response?.data || error.message);
-    console.error('Error status:', error.response?.status);
-    console.error('Error config URL:', error.config?.url);
-    console.error('Error config baseURL:', error.config?.baseURL);
-    console.error('Error config fullURL:', `${error.config?.baseURL}${error.config?.url}`);
-    console.error('Error config headers:', error.config?.headers);
-    res.status(500).json({ error: 'Failed to fetch market price' });
+    console.log(`[${requestId}] === ERROR CAUGHT ===`);
+    console.log(`[${requestId}] Error message:`, error.message);
+    console.log(`[${requestId}] Error name:`, error.name);
+    console.log(`[${requestId}] Error code:`, error.code);
+    console.log(`[${requestId}] Error stack:`, error.stack);
+    console.log(`[${requestId}] Error response status:`, error.response?.status);
+    console.log(`[${requestId}] Error response data:`, error.response?.data);
+    console.log(`[${requestId}] Error response headers:`, error.response?.headers);
+    console.log(`[${requestId}] Error config URL:`, error.config?.url);
+    console.log(`[${requestId}] Error config baseURL:`, error.config?.baseURL);
+    console.log(`[${requestId}] Error config fullURL:`, `${error.config?.baseURL}${error.config?.url}`);
+    console.log(`[${requestId}] Error config headers:`, error.config?.headers);
+    console.log(`[${requestId}] Error config method:`, error.config?.method);
+    console.log(`[${requestId}] Error config data:`, error.config?.data);
+    console.log(`[${requestId}] Error config params:`, error.config?.params);
+    
+    // Handle 404 errors gracefully (token not found is normal)
+    if (error.response?.status === 404) {
+      console.log(`[${requestId}] 404 Error - Token not found in pricing data - returning null price`);
+      return res.json({ price: null, at_time: null, error: 'Token not found' });
+    }
+    
+    // Handle other specific error codes
+    if (error.response?.status === 429) {
+      console.log(`[${requestId}] 429 Error - Rate limit exceeded - returning retry message`);
+      return res.status(429).json({ error: 'Rate limit exceeded', retryAfter: error.response?.headers?.['retry-after'] });
+    }
+    
+    if (error.response?.status === 401) {
+      console.log(`[${requestId}] 401 Error - Authentication failed`);
+      return res.status(401).json({ error: 'Authentication failed' });
+    }
+    
+    if (error.response?.status === 403) {
+      console.log(`[${requestId}] 403 Error - Access forbidden`);
+      return res.status(403).json({ error: 'Access forbidden' });
+    }
+    
+    // Network/connection errors
+    if (error.code === 'ECONNREFUSED') {
+      console.log(`[${requestId}] Connection refused error`);
+      return res.status(503).json({ error: 'Service unavailable' });
+    }
+    
+    if (error.code === 'ETIMEDOUT') {
+      console.log(`[${requestId}] Timeout error`);
+      return res.status(504).json({ error: 'Request timeout' });
+    }
+    
+    // For all other errors, log and return 500
+    console.log(`[${requestId}] Unhandled error - returning 500 status`);
+    res.status(500).json({ 
+      error: 'Failed to fetch market price', 
+      details: error.message,
+      requestId: requestId
+    });
   }
 });
 
@@ -692,34 +800,297 @@ app.get('/api/arbitrage/btc-check', async (req, res) => {
   }
 });
 
+// Debug endpoint to show market data
+app.get('/api/debug/markets', async (req, res) => {
+  try {
+    const marketsResponse = await domeApi.get('/polymarket/markets', {
+      params: {
+        limit: 50,
+        closed: false
+      }
+    });
+    
+    const markets = marketsResponse.data.markets || [];
+    
+    // Show first 10 markets with their titles and slugs
+    const sampleMarkets = markets.slice(0, 10).map(market => ({
+      title: market.question || market.title || 'No title',
+      slug: market.market_slug || 'No slug',
+      volume: market.volume_total || 0
+    }));
+    
+    res.json({
+      totalMarkets: markets.length,
+      sampleMarkets: sampleMarkets,
+      btcMarkets: markets.filter(m => {
+        const title = (m.question || m.title || '').toLowerCase();
+        const slug = (m.market_slug || '').toLowerCase();
+        return title.includes('btc') || title.includes('bitcoin') || slug.includes('btc') || slug.includes('bitcoin');
+      }).map(m => ({
+        title: m.question || m.title || 'No title',
+        slug: m.market_slug || 'No slug'
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Intra-Polymarket BTC Arbitrage Scanner (Slippage Detection)
 app.get('/api/arbitrage/btc-intra-check', async (req, res) => {
+  const requestId = `btc-intra-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   const startTime = Date.now();
-  logToFile('=== /api/arbitrage/btc-intra-check called ===', 'INFO');
+  console.log(`=== [${requestId}] /api/arbitrage/btc-intra-check called ===`);
+  console.log(`[${requestId}] Request timestamp:`, new Date().toISOString());
   
   try {
-    logToFile('Processing BTC intra arbitrage check', 'INFO');
+    console.log(`[${requestId}] Processing BTC intra arbitrage check`);
     
-    // Simple test response first
+    // Fetch current markets from Polymarket
+    console.log(`[${requestId}] Fetching BTC markets from Polymarket...`);
+    const marketsResponse = await domeApi.get('/polymarket/markets', {
+      params: {
+        limit: 100, // Reduce from 200 to avoid API limits
+        closed: false
+      }
+    });
+    
+    const allMarkets = marketsResponse.data.markets || [];
+    console.log(`[${requestId}] Fetched ${allMarkets.length} total markets`);
+    
+    // Debug: Show first few market titles to see what we're working with
+    console.log(`[${requestId}] Sample market titles:`);
+    for (let i = 0; i < Math.min(5, allMarkets.length); i++) {
+      const market = allMarkets[i];
+      console.log(`[${requestId}] ${i + 1}. ${market.question || market.title || 'No title'}`);
+    }
+    
+    // Filter for BTC-related markets
+    const btcMarkets = allMarkets.filter(market => {
+      const title = (market.question || market.title || '').toLowerCase();
+      const description = (market.description || '').toLowerCase();
+      const slug = (market.market_slug || '').toLowerCase();
+      const keywords = ['btc', 'bitcoin', 'bitcoin price', 'btc price', 'bitcoin will'];
+      
+      // Check title, description, and slug for BTC keywords
+      const titleMatch = keywords.some(keyword => title.includes(keyword));
+      const descMatch = keywords.some(keyword => description.includes(keyword));
+      const slugMatch = slug.includes('btc') || slug.includes('bitcoin');
+      
+      const isBtcMarket = titleMatch || descMatch || slugMatch;
+      if (isBtcMarket) {
+        console.log(`[${requestId}] Found BTC market: ${title}`);
+        console.log(`[${requestId}]   Slug: ${slug}`);
+        console.log(`[${requestId}]   Match: title=${titleMatch}, desc=${descMatch}, slug=${slugMatch}`);
+      }
+      return isBtcMarket;
+    });
+    
+    console.log(`[${requestId}] Found ${btcMarkets.length} BTC markets`);
+    
+    // Function to detect market type and get price IDs
+    function getMarketPriceIds(market) {
+      // Regular Yes/No markets
+      if (market.side_a?.id && market.side_b?.id) {
+        return {
+          sideAId: market.side_a.id,
+          sideBId: market.side_b.id,
+          type: 'yes_no',
+          labels: {
+            sideA: market.side_a.label || 'Yes',
+            sideB: market.side_b.label || 'No'
+          }
+        };
+      }
+      
+      // Up/Down markets - different structure, no token IDs
+      if (market.side_a?.label === 'Up' && market.side_b?.label === 'Down') {
+        return {
+          sideAId: null,
+          sideBId: null,
+          type: 'up_down',
+          labels: {
+            sideA: 'Up',
+            sideB: 'Down'
+          }
+        };
+      }
+      
+      // Other market types
+      if (market.side_a?.label || market.side_b?.label) {
+        return {
+          sideAId: null,
+          sideBId: null,
+          type: 'other',
+          labels: {
+            sideA: market.side_a?.label || 'Unknown',
+            sideB: market.side_b?.label || 'Unknown'
+          }
+        };
+      }
+      
+      return null; // Unknown structure
+    }
+    
+    const arbitrageOpportunities = [];
+    let marketsChecked = 0;
+    let marketsSkipped = 0;
+    
+    // Check each BTC market for intra-Polymarket arbitrage
+    for (const market of btcMarkets) {
+      try {
+        console.log(`[${requestId}] Analyzing market: ${market.question || market.title}`);
+        
+        // Detect market type and get price IDs
+        const marketInfo = getMarketPriceIds(market);
+        
+        if (!marketInfo) {
+          console.log(`[${requestId}] Skipping "${market.title}" - unknown market structure`);
+          marketsSkipped++;
+          continue;
+        }
+        
+        console.log(`[${requestId}] Market type: ${marketInfo.type} (${marketInfo.labels.sideA}/${marketInfo.labels.sideB})`);
+        
+        if (!marketInfo.sideAId || !marketInfo.sideBId) {
+          console.log(`[${requestId}] Skipping "${market.title}" - ${marketInfo.type} market not supported yet`);
+          marketsSkipped++;
+          continue;
+        }
+        
+        marketsChecked++;
+        console.log(`[${requestId}] Checking market for arbitrage...`);
+        
+        // Fetch prices with rate limiting
+        const [sideAResponse, sideBResponse] = await Promise.all([
+          domeApi.get(`/polymarket/market-price/${marketInfo.sideAId}`),
+          domeApi.get(`/polymarket/market-price/${marketInfo.sideBId}`)
+        ]);
+        
+        const sideAPrice = sideAResponse.data.price;
+        const sideBPrice = sideBResponse.data.price;
+        
+        console.log(`[${requestId}] Market prices - Side A: ${sideAPrice}, Side B: ${sideBPrice}`);
+        
+        // Check for arbitrage: Yes + No prices should equal 1.00
+        const totalCost = sideAPrice + sideBPrice;
+        const grossProfit = 1.0 - totalCost;
+        
+        // Calculate fees (Polymarket gas/network estimate)
+        const POLY_FEE = 0.003; // ~0.3% per trade
+        const totalFees = POLY_FEE * 2; // Both sides
+        const netProfit = grossProfit - totalFees;
+        
+        console.log(`[${requestId}] Arbitrage calculation - Total: ${totalCost}, Gross: ${(grossProfit * 100).toFixed(2)}%, Net: ${(netProfit * 100).toFixed(2)}%`);
+        
+        // Check if arbitrage exists (net profit > 0)
+        if (netProfit > 0.001) { // Minimum 0.1% profit threshold
+          const opportunity = {
+            market: market.question || market.title,
+            marketSlug: market.market_slug,
+            sideA: {
+              id: sideAId,
+              label: market.side_a?.label || 'Yes',
+              price: sideAPrice,
+              pricePercent: (sideAPrice * 100).toFixed(1)
+            },
+            sideB: {
+              id: sideBId,
+              label: market.side_b?.label || 'No', 
+              price: sideBPrice,
+              pricePercent: (sideBPrice * 100).toFixed(1)
+            },
+            arbitrage: {
+              totalCost: totalCost.toFixed(4),
+              grossProfit: (grossProfit * 100).toFixed(2),
+              netProfit: (netProfit * 100).toFixed(2),
+              profitDollars: (netProfit * 1000).toFixed(2), // Assuming $1000 position
+              fees: {
+                total: (totalFees * 100).toFixed(2),
+                perSide: (POLY_FEE * 100).toFixed(2)
+              }
+            },
+            market: {
+              volume: market.volume_total || 0,
+              liquidity: (market.volume_total || 0) > 10000 ? 'good' : 'limited',
+              maxPosition: Math.floor((market.volume_total || 0) * 0.1) // Max 10% of volume
+            },
+            detected: new Date().toISOString()
+          };
+          
+          arbitrageOpportunities.push(opportunity);
+          console.log(`[${requestId}] ✓ ARBITRAGE FOUND: ${opportunity.market} - Net profit: ${opportunity.arbitrage.netProfit}%`);
+        } else {
+          console.log(`[${requestId}] No arbitrage - profit too low or negative: ${(netProfit * 100).toFixed(2)}%`);
+        }
+        
+      } catch (priceError) {
+        console.log(`[${requestId}] Error fetching prices for market:`, priceError.message);
+        // Continue with next market
+      }
+    }
+    
+    console.log(`[${requestId}] Scan complete - Checked: ${marketsChecked}, Skipped: ${marketsSkipped}, Found: ${arbitrageOpportunities.length}`);
+    
+    // Sort by net profit (highest first)
+    arbitrageOpportunities.sort((a, b) => parseFloat(b.arbitrage.netProfit) - parseFloat(a.arbitrage.netProfit));
+    
     const response = {
       success: true,
-      arbs: [],
-      count: 0,
+      arbs: arbitrageOpportunities,
+      count: arbitrageOpportunities.length,
       timestamp: new Date().toISOString(),
-      note: 'BTC intra arbitrage scanner - testing basic endpoint'
+      scanDuration: Date.now() - startTime,
+      marketsScanned: marketsChecked, // Updated to show actual checked markets
+      marketsSkipped: marketsSkipped, // New field
+      totalBtcMarkets: btcMarkets.length, // New field
+      totalMarkets: allMarkets.length,
+      note: 'Real BTC intra-Polymarket arbitrage scanner - Yes+No price discrepancies',
+      methodology: 'Scans Yes+No price combinations within same market for arbitrage opportunities',
+      threshold: 'Minimum 0.1% net profit after fees',
+      marketTypes: {
+        yes_no: marketsChecked,
+        up_down: marketsSkipped,
+        other: 0
+      }
     };
     
     const duration = Date.now() - startTime;
-    logToFile(`BTC intra check completed in ${duration}ms`, 'INFO');
+    console.log(`[${requestId}] BTC intra scan completed in ${duration}ms`);
+    console.log(`[${requestId}] Results: ${arbitrageOpportunities.length} arbitrage opportunities found`);
     
     res.json(response);
     
   } catch (error) {
     const duration = Date.now() - startTime;
-    logError(error, `BTC intra check failed after ${duration}ms`);
+    console.log(`[${requestId}] === BTC INTRA ERROR ===`);
+    console.log(`[${requestId}] Error message:`, error.message);
+    console.log(`[${requestId}] Error stack:`, error.stack);
+    console.log(`[${requestId}] Error response status:`, error.response?.status);
+    console.log(`[${requestId}] Error response data:`, error.response?.data);
+    
+    // Handle specific error codes
+    if (error.response?.status === 401) {
+      console.log(`[${requestId}] 401 Error - Authentication failed`);
+      return res.status(401).json({ error: 'Authentication failed', requestId });
+    }
+    
+    if (error.response?.status === 429) {
+      console.log(`[${requestId}] 429 Error - Rate limit exceeded`);
+      return res.status(429).json({ error: 'Rate limit exceeded', requestId });
+    }
+    
+    if (error.code === 'ECONNREFUSED') {
+      console.log(`[${requestId}] Connection refused error`);
+      return res.status(503).json({ error: 'Service unavailable', requestId });
+    }
+    
+    console.log(`[${requestId}] Unhandled BTC intra error - returning 500 status`);
     return res.status(500).json({ 
       error: 'Failed to check intra-Polymarket BTC arbitrage',
-      details: error.message 
+      details: error.message,
+      requestId: requestId,
+      duration: duration
     });
   }
 });

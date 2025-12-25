@@ -124,10 +124,23 @@ const MarketList = ({ markets }) => {
               >
                 <div className="market-content">
                   <div className="market-header-info">
-                    <h3>{market.title}</h3>
-                    <div className="market-stats">
-                      <span className="volume-stat">${(market.volume_total || 0).toLocaleString()}</span>
-                      <span className={`status-stat ${market.status || 'unknown'}`}>{market.status || 'N/A'}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <h3>{market.title}</h3>
+                        <span className="created-stat" style={{ display: 'block', fontSize: '0.8rem', color: '#888', marginTop: '4px' }}>
+                          Created: {market.start_time ? new Date(market.start_time * 1000).toLocaleDateString() : 'N/A'}
+                        </span>
+                        <span className="market-slug" style={{ display: 'block', fontSize: '0.7rem', color: '#666', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}>
+                          {market.market_slug || market.condition_id}
+                        </span>
+                      </div>
+                      <div className="market-stats" style={{ textAlign: 'right' }}>
+                        <span className="volume-stat">Vol: {(market.volume_total || 0).toLocaleString()}</span>
+                        <span className={`status-stat ${market.status || 'unknown'}`}>{market.status || 'N/A'}</span>
+                        <span className="expiry-stat">
+                          Exp: {market.end_time ? new Date(market.end_time * 1000).toLocaleDateString() : 'N/A'}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
