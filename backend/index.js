@@ -123,7 +123,7 @@ domeApi.interceptors.response.use(
   }
 );
 
-// Rate limiting queue for Dome API
+// Rate limiting queue for Dome API (FREE tier: 1 request/second)
 const requestQueue = [];
 let isProcessing = false;
 
@@ -140,13 +140,13 @@ const processQueue = async () => {
     } catch (error) {
       reject(error);
     }
-    // Wait 1.1 seconds between requests (slightly over the 1/sec limit)
+    // FREE tier: Wait 1.1 seconds between requests (1 req/sec limit)
     await new Promise(resolve => setTimeout(resolve, 1100));
   }
   isProcessing = false;
 };
 
-// Override domeApi.get to use rate limiting
+// Override domeApi.get to use rate limiting (FREE tier requirement)
 const originalGet = domeApi.get;
 domeApi.get = function(url, config) {
   return new Promise((resolve, reject) => {
@@ -164,10 +164,38 @@ domeApi.get = function(url, config) {
   });
 };
 
+let lastDomeRateLimit = null;
+
+function extractRateLimit(headers) {
+  const limitRaw = headers?.['x-ratelimit-limit'];
+  const remainingRaw = headers?.['x-ratelimit-remaining'];
+  const resetRaw = headers?.['x-ratelimit-reset'];
+
+  const limit = limitRaw !== undefined ? Number(limitRaw) : null;
+  const remaining = remainingRaw !== undefined ? Number(remainingRaw) : null;
+  const reset = resetRaw !== undefined ? Number(resetRaw) : null;
+
+  if (
+    (Number.isFinite(limit) || limit === null) &&
+    (Number.isFinite(remaining) || remaining === null) &&
+    (Number.isFinite(reset) || reset === null)
+  ) {
+    if (limit !== null || remaining !== null || reset !== null) {
+      return { limit, remaining, reset };
+    }
+  }
+
+  return null;
+}
+
 // Routes
 app.get('/', (req, res) => {
   res.json({ message: 'Prediction Markets API Backend' });
 });
+
+// Simple cache to reduce API calls
+const marketsCache = new Map();
+const CACHE_TTL = 30000; // 30 seconds
 
 // Get Polymarket markets
 app.get('/api/markets', async (req, res) => {
@@ -180,14 +208,60 @@ app.get('/api/markets', async (req, res) => {
   try {
     console.log(`[${requestId}] DOME_API_KEY exists:`, !!process.env.DOME_API_KEY);
     console.log(`[${requestId}] DOME_API_KEY length:`, process.env.DOME_API_KEY?.length);
-    console.log(`[${requestId}] Fetching markets from Dome API...`);
     
-    const response = await domeApi.get('/polymarket/markets', {
-      params: {
-        limit: 50,
-        closed: false
+    // Create cache key from query params
+    const cacheKey = JSON.stringify(req.query);
+    const cached = marketsCache.get(cacheKey);
+    
+    // Check cache first
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+      console.log(`[${requestId}] Cache hit! Returning cached data`);
+      return res.json({ markets: cached.data, rateLimit: lastDomeRateLimit });
+    }
+    
+    console.log(`[${requestId}] Cache miss or expired, fetching from Dome API...`);
+    
+    // Build API parameters from request
+    const apiParams = {
+      status: 'open',
+      limit: parseInt(req.query.limit) || 10  // Default to 10 for better performance
+    };
+    
+    // Add tags if provided
+    if (req.query.tags) {
+      let tags = [];
+      if (Array.isArray(req.query.tags)) {
+        tags = req.query.tags;
+      } else if (typeof req.query.tags === 'string') {
+        tags = [req.query.tags];
+      } else {
+        // Handle tags[0], tags[1], etc. format
+        tags = Object.keys(req.query)
+          .filter(key => key.startsWith('tags['))
+          .map(key => req.query[key])
+          .filter(Boolean);
       }
+      
+      if (tags.length > 0) {
+        apiParams.tags = tags;
+        console.log(`[${requestId}] Using tags filter:`, tags);
+      }
+    }
+    
+    // Add other filters
+    if (req.query.min_volume) {
+      apiParams.min_volume = parseInt(req.query.min_volume);
+    }
+    
+    console.log(`[${requestId}] API params:`, apiParams);
+    
+    // Add timeout to prevent hanging (30 seconds)
+    const response = await domeApi.get('/polymarket/markets', {
+      params: apiParams,
+      timeout: 30000 // 30 second timeout
     });
+
+    lastDomeRateLimit = extractRateLimit(response.headers) || lastDomeRateLimit;
     
     console.log(`[${requestId}] Dome API response status:`, response.status);
     console.log(`[${requestId}] Dome API response data type:`, typeof response.data);
@@ -202,13 +276,18 @@ app.get('/api/markets', async (req, res) => {
       console.log(`[${requestId}] First market sample:`, {
         title: markets[0].title,
         market_slug: markets[0].market_slug,
-        side_a_id: markets[0].side_a?.id,
-        side_b_id: markets[0].side_b?.id
       });
     }
     
-    console.log(`[${requestId}] Successfully fetched ${markets?.length || 0} markets`);
-    res.json({ markets });
+    console.log(`[${requestId}] Successfully fetched ${markets.length} markets`);
+    
+    // Store in cache
+    marketsCache.set(cacheKey, {
+      data: markets,
+      timestamp: Date.now()
+    });
+    
+    res.json({ markets: markets, rateLimit: lastDomeRateLimit });
   } catch (error) {
     console.log(`[${requestId}] === MARKETS ERROR CAUGHT ===`);
     console.log(`[${requestId}] Error message:`, error.message);
@@ -238,7 +317,9 @@ app.get('/api/markets', async (req, res) => {
     
     if (error.response?.status === 429) {
       console.log(`[${requestId}] 429 Error - Rate limit exceeded`);
-      return res.status(429).json({ error: 'Rate limit exceeded' });
+      const rl = extractRateLimit(error.response?.headers) || lastDomeRateLimit;
+      if (rl) lastDomeRateLimit = rl;
+      return res.status(429).json({ error: 'Rate limit exceeded', rateLimit: rl });
     }
     
     // Network errors
@@ -249,7 +330,7 @@ app.get('/api/markets', async (req, res) => {
     
     if (error.code === 'ETIMEDOUT') {
       console.log(`[${requestId}] Timeout error`);
-      return res.status(504).json({ error: 'Request timeout' });
+      return res.status(504).json({ error: 'Request timeout', rateLimit: lastDomeRateLimit });
     }
     
     console.log(`[${requestId}] Unhandled markets error - returning 500 status`);
@@ -281,11 +362,14 @@ app.get('/api/market-price/:tokenId', async (req, res) => {
     const fullUrl = `${DOME_API_BASE}/polymarket/market-price/${tokenId}`;
     console.log(`[${requestId}] Full URL: ${fullUrl}`);
     
-    const response = await domeApi.get(`/polymarket/market-price/${tokenId}`);
+    const response = await domeApi.get(`/polymarket/market-price/${tokenId}`, {
+      timeout: 30000 // 30 second timeout
+    });
     console.log(`[${requestId}] Price response status:`, response.status);
     console.log(`[${requestId}] Price response data:`, response.data);
     console.log(`[${requestId}] Request completed successfully`);
-    res.json(response.data);
+    lastDomeRateLimit = extractRateLimit(response.headers) || lastDomeRateLimit;
+    res.json({ ...response.data, rateLimit: lastDomeRateLimit });
   } catch (error) {
     console.log(`[${requestId}] === ERROR CAUGHT ===`);
     console.log(`[${requestId}] Error message:`, error.message);
@@ -306,13 +390,17 @@ app.get('/api/market-price/:tokenId', async (req, res) => {
     // Handle 404 errors gracefully (token not found is normal)
     if (error.response?.status === 404) {
       console.log(`[${requestId}] 404 Error - Token not found in pricing data - returning null price`);
-      return res.json({ price: null, at_time: null, error: 'Token not found' });
+      const rl = extractRateLimit(error.response?.headers) || lastDomeRateLimit;
+      if (rl) lastDomeRateLimit = rl;
+      return res.json({ price: null, at_time: null, error: 'Token not found', rateLimit: rl });
     }
     
     // Handle other specific error codes
     if (error.response?.status === 429) {
       console.log(`[${requestId}] 429 Error - Rate limit exceeded - returning retry message`);
-      return res.status(429).json({ error: 'Rate limit exceeded', retryAfter: error.response?.headers?.['retry-after'] });
+      const rl = extractRateLimit(error.response?.headers) || lastDomeRateLimit;
+      if (rl) lastDomeRateLimit = rl;
+      return res.status(429).json({ error: 'Rate limit exceeded', retryAfter: error.response?.headers?.['retry-after'], rateLimit: rl });
     }
     
     if (error.response?.status === 401) {
@@ -333,7 +421,7 @@ app.get('/api/market-price/:tokenId', async (req, res) => {
     
     if (error.code === 'ETIMEDOUT') {
       console.log(`[${requestId}] Timeout error`);
-      return res.status(504).json({ error: 'Request timeout' });
+      return res.status(504).json({ error: 'Request timeout', rateLimit: lastDomeRateLimit });
     }
     
     // For all other errors, log and return 500
@@ -797,6 +885,75 @@ app.get('/api/arbitrage/btc-check', async (req, res) => {
       error: 'Failed to check BTC arbitrage',
       details: error.response?.data || error.message 
     });
+  }
+});
+
+// Batch price endpoint - fetch multiple market prices efficiently
+app.get('/api/market-prices', async (req, res) => {
+  const requestId = `batch-prices-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  console.log(`=== [${requestId}] /api/market-prices called ===`);
+  
+  try {
+    const tokenIds = req.query.tokenIds;
+    if (!tokenIds) {
+      return res.status(400).json({ error: 'tokenIds parameter required' });
+    }
+    
+    const ids = Array.isArray(tokenIds) ? tokenIds : tokenIds.split(',');
+    console.log(`[${requestId}] Fetching ${ids.length} prices:`, ids.slice(0, 3).join(', ') + (ids.length > 3 ? '...' : ''));
+    
+    let batchRateLimit = null;
+
+    const pricePromises = ids.map(async (tokenId, index) => {
+      try {
+        // FREE tier: Rate limit - only process first 10 prices immediately
+        if (index < 10) {
+          await new Promise(resolve => setTimeout(resolve, 1100 * index)); // Stagger requests
+        } else {
+          // For additional prices, wait longer to respect rate limits
+          await new Promise(resolve => setTimeout(resolve, 1100 * (index + 10)));
+        }
+        
+        const response = await domeApi.get(`/polymarket/market-price/${tokenId}`, {
+          timeout: 10000 // 10 second timeout per price call
+        });
+        const rl = extractRateLimit(response.headers);
+        if (rl) {
+          lastDomeRateLimit = rl;
+          batchRateLimit = rl;
+        }
+        return { tokenId, price: response.data.price, success: true };
+      } catch (error) {
+        console.error(`[${requestId}] Error fetching price for ${tokenId}:`, error.message);
+        const rl = extractRateLimit(error.response?.headers);
+        if (rl) {
+          lastDomeRateLimit = rl;
+          batchRateLimit = rl;
+        }
+        return { tokenId, price: null, success: false, error: error.message };
+      }
+    });
+    
+    const results = await Promise.all(pricePromises);
+    const priceMap = {};
+    
+    results.forEach(result => {
+      priceMap[result.tokenId] = result.price;
+    });
+    
+    console.log(`[${requestId}] Completed batch price fetch: ${results.filter(r => r.success).length}/${ids.length} successful`);
+    
+    res.json({
+      prices: priceMap,
+      timestamp: new Date().toISOString(),
+      successCount: results.filter(r => r.success).length,
+      totalCount: ids.length,
+      rateLimit: batchRateLimit || lastDomeRateLimit
+    });
+    
+  } catch (error) {
+    console.error(`[${requestId}] Batch price error:`, error);
+    res.status(500).json({ error: 'Failed to fetch batch prices', rateLimit: lastDomeRateLimit });
   }
 });
 

@@ -19,7 +19,7 @@ Added detailed logging to all API endpoints with:
 Implemented specific handling for different error types:
 - **404 Errors**: Token not found → Return `{ price: null, error: 'Token not found' }`
 - **401/403 Errors**: Authentication/authorization issues
-- **429 Errors**: Rate limiting with retry information
+- **429 Errors**: Rate limiting with retry information and `rateLimit` metadata
 - **Network Errors**: Connection refused, timeouts
 - **Other Errors**: Proper 500 responses with request IDs
 
@@ -50,7 +50,7 @@ app.get('/api/market-price/:tokenId', async (req, res) => {
     // Specific error handling
     if (error.response?.status === 404) {
       console.log(`[${requestId}] 404 Error - Token not found`);
-      return res.json({ price: null, at_time: null, error: 'Token not found' });
+      return res.json({ price: null, at_time: null, error: 'Token not found', rateLimit: rl });
     }
     
     // ... other error types
@@ -99,6 +99,10 @@ tail -f logs/server-$(date +%Y-%m-%d).log
 2. **Verify 404 handling** works correctly
 3. **Track error patterns** and frequencies
 4. **Debug network issues** with full context
+
+Additional behavior:
+- Backend includes `rateLimit` (derived from Dome `x-ratelimit-*` headers) on relevant responses.
+- Frontend uses `rateLimit.reset` to enforce a global cooldown and reduce repeated timeouts.
 
 ### Long-term Benefits
 1. **Error rate monitoring** and alerting

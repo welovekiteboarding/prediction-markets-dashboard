@@ -3,31 +3,46 @@
 ## Overview
 This document explains the available parameters for the Dome API `/polymarket/markets` endpoint used in the Prediction Markets Dashboard.
 
+## Free Tier Constraints
+- **Rate Limit**: 1 query/second, 10 queries/10 seconds
+- **Recommended Spacing**: 1.1s between API calls
+- **Optimization Strategy**: Use server-side filtering to reduce payload size
+
+This repo additionally uses the Dome `x-ratelimit-*` response headers (when present) to drive a UI-level cooldown.
+
+## Source Documentation
+- **Official API Reference**: https://docs.domeapi.io/
+ 
+
 ## Available Parameters
 
 ### Current Parameters in Use
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| `limit` | 50-100 | Number of markets to return (we use 50 for main endpoint, 100 for BTC scanner) |
-| `closed` | false | Filter closed markets (false = only open markets) |
+| `limit` | 10-100 | Number of markets to return (main UI defaults to 10; BTC intra-scanner uses 100) |
+| `status` | "open" | Filter by market status (open/closed) |
+| `tags[]` | ["Bitcoin"] | Filter by market tags (server-side filtering available) |
+| `min_volume` | 5000 | Minimum volume threshold (numeric; used by `/api/arbitrage/btc-check`) |
 
-### Parameter Details
+Notes:
+- The frontend sends tag filters as indexed query params (`tags[0]`, `tags[1]`, ...) to the backend.
+- The backend normalizes those into a `tags` array before calling Dome.
 
-#### `limit`
-- **Type**: Integer
-- **Range**: 1-100 (recommended)
-- **Purpose**: Controls how many markets are returned
-- **Usage**: 
-  - Main markets endpoint: `limit: 50`
-  - BTC intra-scanner: `limit: 100`
-- **Notes**: Higher limits may hit API rate limits
+### All Supported Parameters
 
-#### `closed`
-- **Type**: Boolean
-- **Values**: `true` (include closed), `false` (only open)
-- **Default**: `false`
-- **Usage**: `closed: false` to exclude resolved/expired markets
+| Parameter | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `limit` | Integer (1-100) | Number of markets to return | `limit: 10` |
+| `offset` | Integer | Pagination offset | `offset: 0` |
+| `status` | String | Market status: "open" or "closed" | `status: "open"` |
+| `tags[]` | Array | Filter by market tags | `tags: ["Bitcoin", "Crypto"]` |
+| `market_slug[]` | Array | Filter by specific market slugs | `market_slug: ["btc-updown-15m"]` |
+| `event_slug[]` | Array | Filter by event slugs | `event_slug: ["bitcoin-event"]` |
+| `condition_id[]` | Array | Filter by condition IDs | `condition_id: ["0x123..."]` |
+| `min_volume` | Integer | Minimum volume threshold | `min_volume: 1000` |
+| `start_time` | Integer | Filter by start timestamp | `start_time: 1640995200` |
+| `end_time` | Integer | Filter by end timestamp | `end_time: 1640995200` |
 
 ## Important Limitations
 
@@ -43,7 +58,7 @@ The Dome API does **NOT** support:
 - **Category filtering**: No way to filter by BTC, sports, politics, etc.
 - **Keyword search**: No text-based market search
 - **Market type filtering**: No filtering by prediction type
-- **Tag-based filtering**: No tag or category system
+- **Tag-based filtering**: Supported via `tags[]` (used by this repo for category filtering)
 - **Sorting**: No volume, price, or date sorting
 
 ### Workarounds Required
@@ -57,26 +72,28 @@ Due to these limitations, we must:
 
 ## Implementation Examples
 
-### Main Markets Endpoint
+### Main Markets Display
 ```javascript
 const response = await domeApi.get('/polymarket/markets', {
   params: {
-    limit: 50,
-    closed: false
+    limit: 10,
+    status: 'open'
   }
 });
 ```
 
-### BTC Intra-Scanner
+### BTC Intra-Scanner (Optimized)
 ```javascript
 const response = await domeApi.get('/polymarket/markets', {
   params: {
     limit: 100,
-    closed: false
+    closed: false,
+    tags: ['Bitcoin'],
+    min_volume: 1000
   }
 });
 
-// Client-side filtering for BTC markets
+// Client-side filtering for specific BTC keywords
 const btcMarkets = allMarkets.filter(market => {
   const title = (market.question || market.title || '').toLowerCase();
   const slug = (market.market_slug || '').toLowerCase();
@@ -85,18 +102,36 @@ const btcMarkets = allMarkets.filter(market => {
 });
 ```
 
+### Cross-Platform Arbitrage Scanner
+```javascript
+// Polymarket BTC markets with server-side filtering
+const polyRes = await domeApi.get('/polymarket/markets', {
+  params: {
+    tags: ['Bitcoin'],
+    status: 'open',
+    min_volume: 5000,
+    limit: 10
+  }
+});
+```
+
 ## Best Practices
 
 ### For General Market Display
-- **Use `limit: 50`** for reasonable page load times
-- **Exclude closed markets** to show active predictions
+- **Use `limit: 10`** for responsiveness
+- **Use `status: 'open'`** to exclude resolved markets
 - **Note**: Markets are returned in API's default order (no sorting available)
 
-### For Category-Specific Scanners
-- **Use `limit: 100`** to find niche markets
-- **Implement robust client-side filtering**
-- **Check multiple fields** (title, slug, description)
-- **Note**: No server-side sorting available
+### For Category-Specific Scanners (Optimized)
+- **Use server-side filtering first**: `tags`, `status`, `min_volume`
+- **Use `limit: 100`** for comprehensive category coverage
+- **Add client-side filtering** only for complex keyword matching
+- **Example**: BTC scanner uses `tags: ['Bitcoin']` + client-side keyword filtering
+
+### Performance Optimization
+- **Server-side filtering reduces payload size** vs fetching all markets
+- **Combine multiple filters**: `tags + status + min_volume` for precise targeting
+- **Stay within Free tier limits**: 1 query/second, 10 queries/10 seconds
 
 ### Performance Considerations
 - **Higher limits** increase API response time
@@ -107,16 +142,24 @@ const btcMarkets = allMarkets.filter(market => {
 ## Troubleshooting
 
 ### Common Issues
-1. **400 Bad Request**: Limit too high (use ≤100)
+1. **400 Bad Request**: Invalid parameter values or syntax
 2. **Empty results**: No matching markets for current filters
 3. **Slow responses**: Large limit or API congestion
-4. **Rate limits**: Too many requests in short time
+4. **Rate limits**: Too many requests in short time (Free tier: 1 QPS)
 
 ### Solutions
-- **Reduce limit** from 200 to 100 if getting 400 errors
-- **Add delay** between repeated scans
-- **Implement exponential backoff** for rate limiting
+- **Check parameter syntax**: Use `status: 'open'` not `closed: false`
+- **Reduce limit** if getting slow responses (for example, `limit: 100` → `limit: 10`)
+- **Respect Dome rate limits**:
+  - Backend paces Dome requests.
+  - Frontend can enforce a global cooldown using `x-ratelimit-reset` (epoch seconds) surfaced via backend `rateLimit.reset`.
+- **Implement server-side filtering** to reduce payload size
 - **Accept default order** - no sorting parameters available
+
+### Free Tier Constraints
+- **Rate Limit**: 1 query/second, 10 queries/10 seconds
+- **Recommended spacing**: 1.1s between API calls
+- **Optimization**: Use server-side filters to reduce API calls
 
 ## Future Improvements
 

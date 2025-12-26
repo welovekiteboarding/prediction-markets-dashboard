@@ -26,7 +26,7 @@ All references below map to the current code in this repo.
 - `frontend/src/components/BtcIntraArbScanner.jsx`
   - BTC intra-polymarket scan UI + optional auto-scan
 - `frontend/src/components/MarketList.jsx`
-  - Price polling every 20 seconds, flashes UI when prices change
+  - Batch price polling for displayed markets (with backoff on errors)
 - `frontend/src/App.js`
   - Imports CSS, wires layout, fetches markets
 
@@ -58,7 +58,7 @@ Polling runs automatically in the background to keep the UI fresh.
 
 Example:
 - `MarketList.jsx` polling calls:
-  - `GET /api/market-price/:tokenId` for each displayed market
+  - `GET /api/market-prices?tokenIds=...` for the displayed markets
 
 ---
 
@@ -120,17 +120,28 @@ Dropdown options:
    - `extractBtcTimeframe(title)`
    - `extractStrikePrice(title)`
    - `normalizeTitle(title)` (**defined but currently unused**)
-4. Fetch Polymarket markets via Dome:
+4. Fetch Polymarket markets via Dome (server-side optimized):
    ```js
    const polyRes = await domeApi.get('/polymarket/markets', {
      params: {
-       tags: ['Bitcoin'],
-       status: 'open',
-       min_volume: 5000,
-       limit: 10
+       tags: ['Bitcoin'],        // Server-side tag filtering
+       status: 'open',           // Server-side status filtering
+       min_volume: 5000,         // Server-side volume filtering
+       limit: 10                 // Limit payload size
      }
    });
    ```
+   **Note**: Server-side filtering reduces payload and stays within Free tier limits
+
+### Batch Price Optimization
+- **Problem**: Frontend was fetching individual market prices sequentially (50 calls × 1.1s = 55s)
+- **Solution**: New `/api/market-prices` endpoint fetches all prices in one efficient batch
+- **Result**: Markets load in ~5 seconds instead of 55 seconds
+- **Rate Compliance**: Still uses 1.1s delays between API calls, stays within Free tier limits
+
+### UI Rate Limit Handling
+- Backend extracts Dome `x-ratelimit-*` headers and includes `rateLimit` in API responses.
+- Frontend enforces a global cooldown until `rateLimit.reset` and pauses/blocks polling and category switching during cooldown.
 5. Filters Polymarket results to short-term BTC:
    ```js
    const polyBtcMarkets = polyRes.data.markets.filter(m => {
@@ -397,13 +408,13 @@ step="15"
 #### Polling interval
 ```js
 const interval = setInterval(() => {
-  fetchIncrementalPrices();
-}, 20000); // 20 seconds
+  fetchAllPrices();
+}, 60000); // 60 seconds
 ```
 
-**To change to 10s:**
+**To change to 30s:**
 ```js
-}, 10000);
+}, 30000);
 ```
 
 #### Price change detection tolerance
@@ -467,13 +478,15 @@ const response = await fetch('http://localhost:5000/api/arbitrage/btc-intra-chec
 #### Markets refresh
 ```js
 const interval = setInterval(() => {
-  fetchMarkets();
-}, 60000); // 60 seconds
+  const refreshRequestId = Date.now();
+  currentRequestId.current = refreshRequestId;
+  fetchMarketsForCategory(selectedCategory, refreshRequestId);
+}, 300000); // 5 minutes
 ```
 
-**To change to 30s:**
+**To change to 1 minute:**
 ```js
-}, 30000);
+}, 60000);
 ```
 
 #### Markets payload normalization
@@ -493,8 +506,8 @@ const marketsData = Array.isArray(response.data?.markets)
 |--------------------------|------|----------------------|----------------|
 | BTC auto-scan interval | `frontend/src/components/BtcArbScanner.jsx` | `useState(30)` | `useState(45)` |
 | Add 90s/120s dropdown options | `frontend/src/components/BtcArbScanner.jsx` | `<option value="60">60s</option>` | Add `<option value="90">90s</option><option value="120">120s</option>` |
-| Market price polling cadence | `frontend/src/components/MarketList.jsx` | `setInterval(..., 20000)` | `setInterval(..., 10000)` |
-| Markets list refresh | `frontend/src/App.js` | `setInterval(..., 60000)` | `setInterval(..., 30000)` |
+| Market price polling cadence | `frontend/src/components/MarketList.jsx` | `setInterval(..., 60000)` | `setInterval(..., 30000)` |
+| Markets list refresh | `frontend/src/App.js` | `setInterval(..., 300000)` | `setInterval(..., 60000)` |
 | BTC timeframe filter | `backend/index.js` (`/api/arbitrage/btc-check`) | `return timeframe === '15m' || timeframe === '30m';` | Add `|| timeframe === '1h'` |
 | Crypto searched (Polymarket tag) | `backend/index.js` | `tags: ['Bitcoin']` | `tags: ['Ethereum']` |
 | Kalshi title filter | `backend/index.js` | `includes('bitcoin') || includes('btc')` | `includes('ethereum') || includes('eth')` |
@@ -523,12 +536,12 @@ if (lower.includes('1 hour') || lower.includes('1h') || lower.includes('60m')) r
 return timeframe === '15m' || timeframe === '30m' || timeframe === '1h';
 ```
 
-### Change market price polling to 10s
+### Change market price polling to 30s
 ```js
 // frontend/src/components/MarketList.jsx
 const interval = setInterval(() => {
-  fetchIncrementalPrices();
-}, 10000); // 10 seconds
+  fetchAllPrices();
+}, 30000); // 30 seconds
 ```
 
 ### Lower volume threshold to include more markets

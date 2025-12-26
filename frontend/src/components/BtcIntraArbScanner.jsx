@@ -6,6 +6,78 @@ const BtcIntraArbScanner = () => {
   const [error, setError] = useState(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(30); // seconds
+  const [lastAlertTime, setLastAlertTime] = useState(0);
+  const [notificationPermission, setNotificationPermission] = useState('default');
+
+  const requestNotificationPermission = () => {
+    if ('Notification' in window) {
+      Notification.requestPermission().then(permission => {
+        setNotificationPermission(permission);
+        if (permission === 'granted') {
+          console.log('✅ Notification permission granted!');
+        } else {
+          console.log('❌ Notification permission denied');
+        }
+      });
+    }
+  };
+
+  // Update permission status when component mounts
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
+
+  // macOS notification function
+  const showMacOSNotification = (title, message, arbitrageCount) => {
+    // Check if Notification API is available
+    if ('Notification' in window) {
+      // Request permission if not granted (handles Safari user gesture requirement)
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            sendNotification(title, message, arbitrageCount);
+          } else {
+            console.log('Notification permission denied by user');
+          }
+        });
+      } else if (Notification.permission === 'granted') {
+        sendNotification(title, message, arbitrageCount);
+      } else {
+        console.log('Notifications blocked by browser');
+      }
+    } else {
+      console.log('Notifications not supported in this browser');
+    }
+  };
+
+  const sendNotification = (title, message, arbitrageCount) => {
+    // Prevent notification spam (minimum 5 minutes between alerts)
+    const now = Date.now();
+    if (now - lastAlertTime < 300000) return; // 5 minutes
+    
+    const notification = new Notification(title, {
+      body: message,
+      icon: '/favicon.ico',
+      badge: '/favicon.ico',
+      tag: 'btc-arbitrage',
+      requireInteraction: true,
+      silent: false
+    });
+
+    // Play system sound on macOS
+    try {
+      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
+      audio.volume = 0.3;
+      audio.play().catch(() => {}); // Ignore audio errors
+    } catch (e) {}
+
+    // Auto-close after 10 seconds
+    setTimeout(() => notification.close(), 10000);
+    
+    setLastAlertTime(now);
+  };
 
   const scanIntraArb = async () => {
     setLoading(true);
@@ -17,6 +89,13 @@ const BtcIntraArbScanner = () => {
         throw new Error(data.error || 'Request failed');
       }
       setResults(data);
+      
+      // Trigger macOS notification for positive arbitrage results
+      if (data.arbs && data.arbs.length > 0) {
+        const totalProfit = data.arbs.reduce((sum, arb) => sum + parseFloat(arb.netProfit || 0), 0);
+        const message = `${data.arbs.length} BTC arbitrage${data.arbs.length > 1 ? 's' : ''} found! Total potential profit: ${totalProfit.toFixed(2)}%`;
+        showMacOSNotification('🚨 BTC Arbitrage Alert!', message, data.arbs.length);
+      }
     } catch (err) {
       setError(err.message);
     }
@@ -41,6 +120,35 @@ const BtcIntraArbScanner = () => {
           <p className="bot-description">
             Detects slippage within Polymarket BTC 15-minute markets using Dome SDK with order book data.
           </p>
+          
+          {/* Notification Status */}
+          <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#888' }}>
+            <span>Notifications: </span>
+            <span style={{ 
+              color: notificationPermission === 'granted' ? '#4ade80' : 
+                     notificationPermission === 'denied' ? '#ef4444' : '#f59e0b' 
+            }}>
+              {notificationPermission === 'granted' ? '✅ Enabled' : 
+               notificationPermission === 'denied' ? '❌ Blocked' : '⚠️ Click to Enable'}
+            </span>
+            {notificationPermission !== 'granted' && (
+              <button
+                onClick={requestNotificationPermission}
+                style={{ 
+                  marginLeft: '0.5rem', 
+                  padding: '0.2rem 0.5rem', 
+                  fontSize: '0.7rem',
+                  background: '#4ade80',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '3px',
+                  cursor: 'pointer'
+                }}
+              >
+                Enable
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="bot-controls-row">

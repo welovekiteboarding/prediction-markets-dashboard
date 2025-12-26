@@ -70,7 +70,7 @@ To decouple the app from the file that was repeatedly truncating:
 This restores the dashboard styling (dark theme, grids, cards, flash animations) without depending on the empty `App.css`.
 
 ### 3) Normalize markets response shape
-- **Updated:** `frontend/src/App.js` `fetchMarkets()` now uses:
+- **Updated:** `frontend/src/App.js` markets fetch now normalizes the response shape:
   - `response.data.markets` if present and an array
   - otherwise falls back to `response.data` if it’s already an array
 
